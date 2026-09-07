@@ -209,8 +209,9 @@ function TeacherDetail({ teacher, trialUsed, onBack, onBookTrial, onHire, balanc
 
   const cost = Math.round(teacher.rate * (duration / 60) * 100) / 100;
 
-  function handleTrial() {
-    onBookTrial(teacher);
+  async function handleTrial() {
+    const ok = await onBookTrial(teacher);
+    if (!ok) return;
     setSuccess("Trial booked. Check My Bookings for the time.");
     setError("");
   }
@@ -224,8 +225,9 @@ function TeacherDetail({ teacher, trialUsed, onBack, onBookTrial, onHire, balanc
       setError(`Not enough balance. Add ${money(cost - balance)} more to book this session.`);
       return;
     }
-    await onHire(teacher, duration, slot, cost);
-    setSuccess(`Session booked with ${teacher.name} for ${slot}.`);
+    const ok = await onHire(teacher, duration, slot, cost);
+    if (!ok) return;
+    setSuccess(`Session booked with ${teacher.name} for ${slot.label}.`);
     setError("");
     setSlot(null);
   }
@@ -301,7 +303,7 @@ function TeacherDetail({ teacher, trialUsed, onBack, onBookTrial, onHire, balanc
           <div className="flex flex-col gap-1.5">
             {teacher.slots.map((s) => (
               <button
-                key={s}
+                key={s.id}
                 onClick={() => setSlot(s)}
                 className={`text-left px-3 py-1.5 rounded-sm text-sm font-mono border flex items-center gap-2 ${
                   slot === s
@@ -309,7 +311,7 @@ function TeacherDetail({ teacher, trialUsed, onBack, onBookTrial, onHire, balanc
                     : "bg-white text-slate-700 border-slate-300 hover:border-slate-500"
                 }`}
               >
-                <Clock size={13} /> {s}
+                <Clock size={13} /> {s.label}
               </button>
             ))}
           </div>
@@ -376,8 +378,7 @@ function SessionView({ teacher, seconds, onEnd }) {
   );
 }
 
-function WalletView({ balance, transactions, onRecharge }) {
-  const [custom, setCustom] = useState("");
+function WalletView({ balance, transactions }) {
 
   return (
     <div className="max-w-2xl mx-auto animate-[fadeIn_.25s_ease-out]">
@@ -387,34 +388,12 @@ function WalletView({ balance, transactions, onRecharge }) {
       </div>
 
       <div className="bg-white border border-slate-200 rounded-sm p-5 mt-4">
-        <h3 className="text-lg font-bold text-slate-900 mb-3">Add funds</h3>
-        <div className="flex gap-2 flex-wrap">
-          {[10, 25, 50, 100].map((amt) => (
-            <button
-              key={amt}
-              onClick={() => onRecharge(amt)}
-              className="px-4 py-2 rounded-sm font-mono text-sm border border-slate-300 bg-white hover:border-slate-900 hover:text-slate-900"
-            >
-              +{money(amt)}
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-2 mt-3">
-          <input
-            value={custom}
-            onChange={(e) => setCustom(e.target.value.replace(/[^0-9.]/g, ""))}
-            placeholder="Custom amount"
-            className="flex-1 px-3 py-2 rounded-sm border border-slate-300 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
-          />
-          <button
-            onClick={() => {
-              const n = parseFloat(custom);
-              if (n > 0) { onRecharge(n); setCustom(""); }
-            }}
-            className="px-4 py-2 rounded-sm font-mono text-sm font-semibold uppercase tracking-wide bg-slate-900 text-amber-400 hover:bg-slate-800 flex items-center gap-1"
-          >
-            <Plus size={14} /> Add
-          </button>
+        <h3 className="text-lg font-bold text-slate-900 mb-2">Add funds</h3>
+        <p className="text-sm text-slate-500">
+          Secure card payments are not enabled yet. Your balance can only be changed by completed server-side payment transactions.
+        </p>
+        <div className="mt-3 text-xs font-mono uppercase tracking-wide text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          Payments coming soon
         </div>
       </div>
 
@@ -504,7 +483,6 @@ function AnytimeApp({ user }) {
   const [problemSubject, setProblemSubject] = useState("All");
   const [session, setSession] = useState(null);
   const [sessionSeconds, setSessionSeconds] = useState(0);
-  const [autoRecharge, setAutoRecharge] = useState(false);
   const [notes, setNotes] = useState([]);
   const [refunds, setRefunds] = useState([]);
   const TEACHERS = teachers;
@@ -644,10 +622,6 @@ function AnytimeApp({ user }) {
     return () => clearInterval(id);
   }, [session]);
 
-  useEffect(() => {
-    if (autoRecharge && balance < 3) handleRecharge(10);
-  }, [balance, autoRecharge]);
-
   function openTeacher(id) {
     setSelectedId(id);
     setTab("teacher");
@@ -714,14 +688,6 @@ function AnytimeApp({ user }) {
     window.setTimeout(() => {}, 0);
   }
 
-  function handleRecharge(amount) {
-    setBalance((b) => b + amount);
-    setTransactions((tx) => [
-      { id: Date.now(), note: "Balance recharge", amount, date: "Aug 19, 2026" },
-      ...tx,
-    ]);
-  }
-
   async function handleBookTrial(teacher) {
     const slot = teacher.slots[0];
     if (!slot) { setDataError("This teacher has no future availability."); return; }
@@ -731,10 +697,11 @@ function AnytimeApp({ user }) {
       p_type: "trial",
       p_duration_minutes: 15,
     });
-    if (error) { setDataError(error.message); return; }
+    if (error) { setDataError(error.message); return false; }
     setTrialsUsed((prev) => new Set(prev).add(teacher.id));
     setBookings((b) => [{ id: crypto.randomUUID(), teacherId: teacher.id, teacherName: teacher.name, subject: teacher.subjects[0], duration: 15, slot: slot.label, amount: 0, type: "trial", status: "confirmed", availabilityId: slot.id }, ...b]);
     setTeachers((all) => all.map((t) => t.id === teacher.id ? { ...t, slots: t.slots.filter((s) => s.id !== slot.id) } : t));
+    return true;
   }
 
   async function handleHire(teacher, duration, slot, cost) {
@@ -744,11 +711,12 @@ function AnytimeApp({ user }) {
       p_type: "paid",
       p_duration_minutes: duration,
     });
-    if (error) { setDataError(error.message); return; }
+    if (error) { setDataError(error.message); return false; }
     setBalance((b) => b - cost);
     setTransactions((tx) => [{ id: crypto.randomUUID(), note: `Session with ${teacher.name}`, amount: -cost, date: new Date().toLocaleString() }, ...tx]);
     setBookings((b) => [{ id: data?.id || crypto.randomUUID(), teacherId: teacher.id, teacherName: teacher.name, subject: teacher.subjects[0], duration, slot: slot.label, amount: cost, type: "paid", status: "confirmed", availabilityId: slot.id }, ...b]);
     setTeachers((all) => all.map((t) => t.id === teacher.id ? { ...t, slots: t.slots.filter((s) => s.id !== slot.id) } : t));
+    return true;
   }
 
   return (
@@ -911,7 +879,7 @@ function AnytimeApp({ user }) {
         )}
 
         {tab === "wallet" && (
-          <WalletView balance={balance} transactions={transactions} onRecharge={handleRecharge} />
+          <WalletView balance={balance} transactions={transactions} />
         )}
 
         {tab === "bookings" && (
