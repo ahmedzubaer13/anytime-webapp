@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { supabase } from "./lib/supabase";\nimport AuthScreen from "./AuthScreen";
+import { supabase } from "./lib/supabase";
+import AuthScreen from "./AuthScreen";
 import {
   Search, Clock, ArrowLeft, Check, GraduationCap,
   X, Wallet, History, CalendarCheck, Plus, Circle,
@@ -490,7 +491,10 @@ export default function AnytimeApp({ user }) {
   const [selectedId, setSelectedId] = useState(null);
   const [search, setSearch] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("All");
-  const [teachers, setTeachers] = useState([]);\n  const [balance, setBalance] = useState(0);\n  const [dataLoading, setDataLoading] = useState(true);\n  const [dataError, setDataError] = useState("");
+  const [teachers, setTeachers] = useState([]);
+  const [balance, setBalance] = useState(0);
+  const [dataLoading, setDataLoading] = useState(true);
+  const [dataError, setDataError] = useState("");
   const [transactions, setTransactions] = useState([
     { id: 1, note: "Welcome bonus", amount: 50, date: "Aug 19, 2026" },
   ]);
@@ -502,7 +506,8 @@ export default function AnytimeApp({ user }) {
   const [sessionSeconds, setSessionSeconds] = useState(0);
   const [autoRecharge, setAutoRecharge] = useState(false);
   const [notes, setNotes] = useState([]);
-  const [refunds, setRefunds] = useState([]);\n  const TEACHERS = teachers;
+  const [refunds, setRefunds] = useState([]);
+  const TEACHERS = teachers;
 
   useEffect(() => {
     let cancelled = false;
@@ -629,7 +634,9 @@ export default function AnytimeApp({ user }) {
     return matchesSearch && matchesSubject;
   });
 
-  const selected = TEACHERS.find((t) => t.id === selectedId);\n\n  if (dataLoading) return <div className="min-h-screen bg-[#f4f6f8] flex items-center justify-center font-mono text-sm text-slate-500">Loading your Anytime workspace…</div>;
+  const selected = TEACHERS.find((t) => t.id === selectedId);
+
+  if (dataLoading) return <div className="min-h-screen bg-[#f4f6f8] flex items-center justify-center font-mono text-sm text-slate-500">Loading your Anytime workspace…</div>;
 
   useEffect(() => {
     if (!session) return;
@@ -789,7 +796,8 @@ export default function AnytimeApp({ user }) {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-7 sm:py-9">\n        {dataError && <div className="mb-4 text-sm font-mono text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{dataError}</div>}
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-7 sm:py-9">
+        {dataError && <div className="mb-4 text-sm font-mono text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{dataError}</div>}
         {tab === "browse" && (
           <>
             <Slideshow />
@@ -924,4 +932,27 @@ export default function AnytimeApp({ user }) {
     </div>
   );
 }
-\nexport default function Anytime() {\n  const [user, setUser] = useState(null);\n  const [loading, setLoading] = useState(true);\n  const [authError, setAuthError] = useState("");\n\n  useEffect(() => {\n    if (!supabase) { setLoading(false); return; }\n    supabase.auth.getSession().then(({ data, error }) => {\n      if (error) setAuthError(error.message);\n      setUser(data.session?.user ?? null);\n      setLoading(false);\n    });\n    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => setUser(session?.user ?? null));\n    return () => listener.subscription.unsubscribe();\n  }, []);\n\n  if (loading) return <div className="min-h-screen bg-[#f4f6f8] flex items-center justify-center font-mono text-sm text-slate-500">Loading…</div>;\n  if (!supabase) return <div className="min-h-screen bg-[#f4f6f8] flex items-center justify-center px-4 text-center"><div><p className="text-2xl font-black">Supabase configuration missing</p><p className="text-sm text-slate-500 mt-2">Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in the deployment environment.</p></div></div>;\n  if (!user) {\n    return <AuthScreen />;\n  }\n  return <AnytimeApp user={user} />;\n}\n
+
+export default function Anytime() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
+
+  useEffect(() => {
+    if (!supabase) { setLoading(false); return; }
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (error) setAuthError(error.message);
+      setUser(data.session?.user ?? null);
+      setLoading(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => setUser(session?.user ?? null));
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  if (loading) return <div className="min-h-screen bg-[#f4f6f8] flex items-center justify-center font-mono text-sm text-slate-500">Loading…</div>;
+  if (!supabase) return <div className="min-h-screen bg-[#f4f6f8] flex items-center justify-center px-4 text-center"><div><p className="text-2xl font-black">Supabase configuration missing</p><p className="text-sm text-slate-500 mt-2">Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in the deployment environment.</p></div></div>;
+  if (!user) {
+    return <AuthScreen />;
+  }
+  return <AnytimeApp user={user} />;
+}
