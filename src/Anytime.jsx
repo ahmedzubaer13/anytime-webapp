@@ -486,7 +486,7 @@ const UI_STYLES = `
 }
 `;
 
-export default function AnytimeApp({ user }) {
+function AnytimeApp({ user }) {
   const [tab, setTab] = useState("browse");
   const [selectedId, setSelectedId] = useState(null);
   const [search, setSearch] = useState("");
