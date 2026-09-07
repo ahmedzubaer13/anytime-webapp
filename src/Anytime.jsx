@@ -537,7 +537,7 @@ export default function AnytimeApp({ user }) {
         const profiles = Object.fromEntries((profilesResult.data || []).map((p) => [p.id, p]));
         const subjectsByTeacher = {};
         for (const row of subjectsResult.data || []) {
-          (subjectsByTeacher[row.teacher_id] ||= []).push(row.subjects?.name).filter(Boolean);
+          if (row.subjects?.name) (subjectsByTeacher[row.teacher_id] ||= []).push(row.subjects.name);
         }
         const slotsByTeacher = {};
         for (const slot of availabilityResult.data || []) {
