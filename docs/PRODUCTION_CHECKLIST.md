@@ -15,16 +15,16 @@
 - [x] Production-readiness work is isolated on `predeploy-production-readiness`.
 
 ## Blocking issues before a real production launch
-- [ ] The current frontend is still a mock/prototype: teacher data, wallet state, bookings, sessions, and transactions are stored in React state rather than Supabase.
-- [ ] Supabase Auth is not wired into the current UI.
-- [ ] The current frontend does not call `create_booking` / `cancel_booking`.
-- [ ] Real availability timestamps are not used by the current UI.
-- [ ] Stripe payment processing is not implemented; the current "Add funds" UI only changes local state.
+- [x] Frontend authentication, teacher discovery, wallet reads, transaction reads, bookings, booking cancellation, and trial/paid booking RPC calls are wired to Supabase. The live session screen is still simulated.
+- [x] Supabase email/password Auth is wired into the current UI.
+- [x] The current frontend calls `create_booking` / `cancel_booking`.
+- [x] Real future availability timestamps are loaded from `availability_slots`.
+- [ ] Stripe payment processing is not implemented; wallet funding is intentionally disabled until the Stripe flow is connected.
 - [ ] Live video/session infrastructure is not implemented; the current session screen is a timer simulation.
 - [ ] Teacher onboarding/admin workflows are not implemented.
-- [ ] The database currently has zero rows in the core application tables, so there are no real teachers/availability to display.
+- [ ] The core application tables currently have zero teacher/availability rows, so production teacher discovery remains empty until teacher accounts are onboarded.
 - [ ] Production Auth redirect/site URLs must be configured for the final Vercel domain.
-- [ ] Vercel Production environment variables must be configured and the production build must pass.
+- [ ] Vercel Production environment variables must be configured. The branch CI build currently passes.
 - [ ] End-to-end tests for signup, booking race conditions, wallet charge/refund, and session completion are still required.
 
 ## Security notes
