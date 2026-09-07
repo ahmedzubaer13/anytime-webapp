@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { supabase } from "./lib/supabase";
+import AuthScreen from "./AuthScreen";
 import {
   Search, Clock, ArrowLeft, Check, GraduationCap,
   X, Wallet, History, CalendarCheck, Plus, Circle,
@@ -7,62 +9,7 @@ import {
   MessageCircle, BookOpen, Star, UserCheck, RotateCcw, SlidersHorizontal,
 } from "lucide-react";
 
-const TEACHERS = [
-  {
-    id: 1, name: "Maria Chen", subjects: ["Algebra", "Calculus"], rate: 18,
-    rating: 4.9, reviews: 132, color: "amber",
-    bio: "Ten years tutoring high schoolers through algebra and calculus. I build from what you already understand instead of starting over.",
-    tags: ["Exam prep", "Patient"],
-    verified: true, response: 2, repeatRate: 78, sessions: 418, level: "High school · University",
-    minuteRate: 0.30, languages: ["English"],
-    slots: ["Today 4:00 PM", "Today 6:30 PM", "Tomorrow 10:00 AM"],
-  },
-  {
-    id: 2, name: "Daniel Okafor", subjects: ["Physics"], rate: 22,
-    rating: 4.8, reviews: 89, color: "sky",
-    bio: "Former lab instructor. I teach physics through the questions you'd actually ask in a lab, not just the formulas.",
-    tags: ["Problem sets", "Visual explainer"],
-    verified: true, response: 3, repeatRate: 74, sessions: 286, level: "High school · University",
-    minuteRate: 0.37, languages: ["English"],
-    slots: ["Today 5:00 PM", "Tomorrow 9:00 AM", "Tomorrow 2:00 PM"],
-  },
-  {
-    id: 3, name: "Sofia Reyes", subjects: ["Spanish"], rate: 15,
-    rating: 5.0, reviews: 210, color: "rose",
-    bio: "Native speaker from Madrid. Conversational focus from lesson one — you'll be speaking, not just memorizing verb tables.",
-    tags: ["Conversation", "Beginner friendly"],
-    verified: true, response: 1, repeatRate: 84, sessions: 612, level: "Beginner · Intermediate",
-    minuteRate: 0.25, languages: ["English", "Spanish"],
-    slots: ["Today 3:00 PM", "Today 7:00 PM", "Tomorrow 11:00 AM"],
-  },
-  {
-    id: 4, name: "James Whitfield", subjects: ["Python", "Data Structures"], rate: 25,
-    rating: 4.7, reviews: 64, color: "emerald",
-    bio: "Backend engineer by day. I teach Python and data structures the way I wish someone had taught me — with real code, not slides.",
-    tags: ["Interview prep", "Live coding"],
-    verified: true, response: 4, repeatRate: 71, sessions: 203, level: "University · Professional",
-    minuteRate: 0.42, languages: ["English"],
-    slots: ["Today 8:00 PM", "Tomorrow 1:00 PM", "Tomorrow 6:00 PM"],
-  },
-  {
-    id: 5, name: "Aiko Tanaka", subjects: ["Piano", "Music Theory"], rate: 20,
-    rating: 4.9, reviews: 97, color: "violet",
-    bio: "Classically trained, but I teach whatever you want to play — classical, pop, or film scores. Theory taught through your own pieces.",
-    tags: ["All levels", "Repertoire choice"],
-    verified: true, response: 3, repeatRate: 81, sessions: 344, level: "All levels",
-    minuteRate: 0.33, languages: ["English", "Japanese"],
-    slots: ["Today 4:30 PM", "Tomorrow 10:30 AM", "Tomorrow 3:00 PM"],
-  },
-  {
-    id: 6, name: "Ben Torres", subjects: ["English Writing"], rate: 16,
-    rating: 4.8, reviews: 145, color: "orange",
-    bio: "Former newspaper editor. I help with essays, applications, and just writing sentences that sound like you.",
-    tags: ["College essays", "Editing"],
-    verified: true, response: 2, repeatRate: 76, sessions: 391, level: "High school · University",
-    minuteRate: 0.27, languages: ["English"],
-    slots: ["Today 6:00 PM", "Tomorrow 9:30 AM", "Tomorrow 5:00 PM"],
-  },
-];
+const TEACHERS = [];
 
 const AVATAR_BG = {
   amber: "bg-amber-500", sky: "bg-sky-500", rose: "bg-rose-500",
@@ -86,7 +33,7 @@ function money(n) {
   return `$${n.toFixed(2)}`;
 }
 function isActive(slot) {
-  return slot.startsWith("Today");
+  return Boolean(slot?.active);
 }
 
 function Barcode() {
@@ -104,7 +51,7 @@ function StatusTag({ slot }) {
   return (
     <span className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider ${active ? "text-emerald-400" : "text-slate-400"}`}>
       <Circle size={7} className={active ? "fill-emerald-400 text-emerald-400" : "fill-slate-500 text-slate-500"} />
-      {active ? "Active" : `Next: ${slot}`}
+      {active ? "Active" : `Next: ${slot?.label || "Unavailable"}`}
     </span>
   );
 }
@@ -262,13 +209,14 @@ function TeacherDetail({ teacher, trialUsed, onBack, onBookTrial, onHire, balanc
 
   const cost = Math.round(teacher.rate * (duration / 60) * 100) / 100;
 
-  function handleTrial() {
-    onBookTrial(teacher);
+  async function handleTrial() {
+    const ok = await onBookTrial(teacher);
+    if (!ok) return;
     setSuccess("Trial booked. Check My Bookings for the time.");
     setError("");
   }
 
-  function handleHireClick() {
+  async function handleHireClick() {
     if (!slot) {
       setError("Pick a time slot first.");
       return;
@@ -277,8 +225,9 @@ function TeacherDetail({ teacher, trialUsed, onBack, onBookTrial, onHire, balanc
       setError(`Not enough balance. Add ${money(cost - balance)} more to book this session.`);
       return;
     }
-    onHire(teacher, duration, slot, cost);
-    setSuccess(`Session booked with ${teacher.name} for ${slot}.`);
+    const ok = await onHire(teacher, duration, slot, cost);
+    if (!ok) return;
+    setSuccess(`Session booked with ${teacher.name} for ${slot.label}.`);
     setError("");
     setSlot(null);
   }
@@ -354,7 +303,7 @@ function TeacherDetail({ teacher, trialUsed, onBack, onBookTrial, onHire, balanc
           <div className="flex flex-col gap-1.5">
             {teacher.slots.map((s) => (
               <button
-                key={s}
+                key={s.id}
                 onClick={() => setSlot(s)}
                 className={`text-left px-3 py-1.5 rounded-sm text-sm font-mono border flex items-center gap-2 ${
                   slot === s
@@ -362,7 +311,7 @@ function TeacherDetail({ teacher, trialUsed, onBack, onBookTrial, onHire, balanc
                     : "bg-white text-slate-700 border-slate-300 hover:border-slate-500"
                 }`}
               >
-                <Clock size={13} /> {s}
+                <Clock size={13} /> {s.label}
               </button>
             ))}
           </div>
@@ -429,8 +378,7 @@ function SessionView({ teacher, seconds, onEnd }) {
   );
 }
 
-function WalletView({ balance, transactions, onRecharge }) {
-  const [custom, setCustom] = useState("");
+function WalletView({ balance, transactions }) {
 
   return (
     <div className="max-w-2xl mx-auto animate-[fadeIn_.25s_ease-out]">
@@ -440,34 +388,12 @@ function WalletView({ balance, transactions, onRecharge }) {
       </div>
 
       <div className="bg-white border border-slate-200 rounded-sm p-5 mt-4">
-        <h3 className="text-lg font-bold text-slate-900 mb-3">Add funds</h3>
-        <div className="flex gap-2 flex-wrap">
-          {[10, 25, 50, 100].map((amt) => (
-            <button
-              key={amt}
-              onClick={() => onRecharge(amt)}
-              className="px-4 py-2 rounded-sm font-mono text-sm border border-slate-300 bg-white hover:border-slate-900 hover:text-slate-900"
-            >
-              +{money(amt)}
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-2 mt-3">
-          <input
-            value={custom}
-            onChange={(e) => setCustom(e.target.value.replace(/[^0-9.]/g, ""))}
-            placeholder="Custom amount"
-            className="flex-1 px-3 py-2 rounded-sm border border-slate-300 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
-          />
-          <button
-            onClick={() => {
-              const n = parseFloat(custom);
-              if (n > 0) { onRecharge(n); setCustom(""); }
-            }}
-            className="px-4 py-2 rounded-sm font-mono text-sm font-semibold uppercase tracking-wide bg-slate-900 text-amber-400 hover:bg-slate-800 flex items-center gap-1"
-          >
-            <Plus size={14} /> Add
-          </button>
+        <h3 className="text-lg font-bold text-slate-900 mb-2">Add funds</h3>
+        <p className="text-sm text-slate-500">
+          Secure card payments are not enabled yet. Your balance can only be changed by completed server-side payment transactions.
+        </p>
+        <div className="mt-3 text-xs font-mono uppercase tracking-wide text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          Payments coming soon
         </div>
       </div>
 
@@ -539,12 +465,15 @@ const UI_STYLES = `
 }
 `;
 
-export default function Anytime() {
+function AnytimeApp({ user }) {
   const [tab, setTab] = useState("browse");
   const [selectedId, setSelectedId] = useState(null);
   const [search, setSearch] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("All");
-  const [balance, setBalance] = useState(50);
+  const [teachers, setTeachers] = useState([]);
+  const [balance, setBalance] = useState(0);
+  const [dataLoading, setDataLoading] = useState(true);
+  const [dataError, setDataError] = useState("");
   const [transactions, setTransactions] = useState([
     { id: 1, note: "Welcome bonus", amount: 50, date: "Aug 19, 2026" },
   ]);
@@ -554,10 +483,118 @@ export default function Anytime() {
   const [problemSubject, setProblemSubject] = useState("All");
   const [session, setSession] = useState(null);
   const [sessionSeconds, setSessionSeconds] = useState(0);
-  const [autoRecharge, setAutoRecharge] = useState(false);
   const [notes, setNotes] = useState([]);
   const [refunds, setRefunds] = useState([]);
+  const TEACHERS = teachers;
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadProductionData() {
+      setDataLoading(true);
+      setDataError("");
+      try {
+        const [teacherResult, walletResult, txResult, bookingResult] = await Promise.all([
+          supabase
+            .from("teacher_profiles")
+            .select("user_id, headline, biography, rate_per_minute, rate_per_hour, experience_years, languages, tags, rating, review_count, sessions_completed, response_time_minutes, is_verified, accepting_students, trial_enabled, presence"),
+          supabase.from("wallets").select("balance").eq("user_id", user.id).maybeSingle(),
+          supabase.from("wallet_transactions").select("id, amount, description, created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
+          supabase.from("bookings").select("id, teacher_id, availability_id, type, status, scheduled_start, scheduled_end, duration_minutes, amount, rate_per_minute, created_at").eq("student_id", user.id).order("created_at", { ascending: false }).limit(50),
+        ]);
+        if (teacherResult.error) throw teacherResult.error;
+        if (walletResult.error) throw walletResult.error;
+        if (txResult.error) throw txResult.error;
+        if (bookingResult.error) throw bookingResult.error;
+
+        const rawTeachers = teacherResult.data || [];
+        const teacherIds = rawTeachers.map((t) => t.user_id);
+        const [profilesResult, subjectsResult, availabilityResult] = await Promise.all([
+          teacherIds.length ? supabase.from("profiles").select("id, full_name, avatar_url").in("id", teacherIds) : Promise.resolve({ data: [], error: null }),
+          teacherIds.length ? supabase.from("teacher_subjects").select("teacher_id, subjects(name)").in("teacher_id", teacherIds) : Promise.resolve({ data: [], error: null }),
+          teacherIds.length ? supabase.from("availability_slots").select("id, teacher_id, starts_at, ends_at, status").in("teacher_id", teacherIds).eq("status", "open").gt("starts_at", new Date().toISOString()).order("starts_at", { ascending: true }).limit(300) : Promise.resolve({ data: [], error: null }),
+        ]);
+        if (profilesResult.error) throw profilesResult.error;
+        if (subjectsResult.error) throw subjectsResult.error;
+        if (availabilityResult.error) throw availabilityResult.error;
+
+        const profiles = Object.fromEntries((profilesResult.data || []).map((p) => [p.id, p]));
+        const subjectsByTeacher = {};
+        for (const row of subjectsResult.data || []) {
+          if (row.subjects?.name) (subjectsByTeacher[row.teacher_id] ||= []).push(row.subjects.name);
+        }
+        const slotsByTeacher = {};
+        for (const slot of availabilityResult.data || []) {
+          (slotsByTeacher[slot.teacher_id] ||= []).push({
+            id: slot.id,
+            label: new Date(slot.starts_at).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+            active: false,
+          });
+        }
+
+        const mapped = rawTeachers.filter((t) => t.accepting_students).map((t, index) => {
+          const p = profiles[t.user_id];
+          return {
+            id: t.user_id,
+            name: p?.full_name || "Anytime Teacher",
+            subjects: subjectsByTeacher[t.user_id]?.length ? subjectsByTeacher[t.user_id] : ["General"],
+            rate: Number(t.rate_per_hour || Number(t.rate_per_minute) * 60),
+            rating: Number(t.rating || 0),
+            reviews: Number(t.review_count || 0),
+            color: ["amber", "sky", "rose", "emerald", "violet", "orange"][index % 6],
+            bio: t.biography || t.headline || "Available to help you learn.",
+            tags: t.tags || [],
+            verified: Boolean(t.is_verified),
+            response: Number(t.response_time_minutes || 60),
+            repeatRate: 0,
+            sessions: Number(t.sessions_completed || 0),
+            level: "All levels",
+            minuteRate: Number(t.rate_per_minute || 0),
+            languages: t.languages || ["English"],
+            trialEnabled: Boolean(t.trial_enabled),
+            presence: t.presence,
+            slots: slotsByTeacher[t.user_id] || [],
+          };
+        });
+
+        const teacherById = Object.fromEntries(mapped.map((t) => [t.id, t]));
+        const mappedBookings = (bookingResult.data || []).map((b) => {
+          const t = teacherById[b.teacher_id];
+          return {
+            id: b.id,
+            teacherId: b.teacher_id,
+            teacherName: t?.name || "Teacher",
+            subject: t?.subjects?.[0] || "General",
+            duration: b.duration_minutes,
+            slot: b.scheduled_start ? new Date(b.scheduled_start).toLocaleString() : "Instant",
+            amount: Number(b.amount || 0),
+            type: b.type,
+            status: b.status,
+            availabilityId: b.availability_id,
+          };
+        });
+
+        if (!cancelled) {
+          setTeachers(mapped);
+          setBalance(Number(walletResult.data?.balance || 0));
+          setTransactions((txResult.data || []).map((tx) => ({
+            id: tx.id,
+            note: tx.description || "Wallet transaction",
+            amount: Number(tx.amount || 0),
+            date: new Date(tx.created_at).toLocaleString(),
+          })));
+          setBookings(mappedBookings);
+          setTrialsUsed(new Set(mappedBookings.filter((b) => b.type === "trial" && b.status !== "cancelled").map((b) => b.teacherId)));
+        }
+      } catch (error) {
+        if (!cancelled) setDataError(error?.message || "Could not load your Anytime data.");
+      } finally {
+        if (!cancelled) setDataLoading(false);
+      }
+    }
+    loadProductionData();
+    return () => { cancelled = true; };
+  }, [user.id]);
+  
   const subjects = ["All", ...new Set(TEACHERS.flatMap((t) => t.subjects))];
   const activeCount = TEACHERS.filter((t) => isActive(t.slots[0])).length;
   const subjectCounts = Object.entries(
@@ -577,15 +614,13 @@ export default function Anytime() {
 
   const selected = TEACHERS.find((t) => t.id === selectedId);
 
+  if (dataLoading) return <div className="min-h-screen bg-[#f4f6f8] flex items-center justify-center font-mono text-sm text-slate-500">Loading your Anytime workspace…</div>;
+
   useEffect(() => {
     if (!session) return;
     const id = setInterval(() => setSessionSeconds((s) => s + 1), 1000);
     return () => clearInterval(id);
   }, [session]);
-
-  useEffect(() => {
-    if (autoRecharge && balance < 3) handleRecharge(10);
-  }, [balance, autoRecharge]);
 
   function openTeacher(id) {
     setSelectedId(id);
@@ -634,18 +669,18 @@ export default function Anytime() {
     setTab("bookings");
   }
 
-  function cancelBooking(id) {
+  async function cancelBooking(id) {
     const booking = bookings.find((b) => b.id === id);
     if (!booking) return;
-    if (booking.amount > 0) {
-      setBalance((b) => b + booking.amount);
-      setTransactions((tx) => [
-        { id: Date.now(), note: `Refund · ${booking.teacherName}`, amount: booking.amount, date: "Aug 19, 2026" },
-        ...tx,
-      ]);
-    }
+    const { error } = await supabase.rpc("cancel_booking", { p_booking_id: id });
+    if (error) { setDataError(error.message); return; }
+    setBalance((b) => b + Number(booking.amount || 0));
+    setTransactions((tx) => booking.amount > 0 ? [{ id: crypto.randomUUID(), note: `Refund · ${booking.teacherName}`, amount: booking.amount, date: new Date().toLocaleString() }, ...tx] : tx);
     setRefunds((r) => [...r, id]);
     setBookings((b) => b.filter((x) => x.id !== id));
+    if (booking.availabilityId) {
+      setTeachers((all) => all.map((t) => t.id === booking.teacherId ? { ...t, slots: [...t.slots, { id: booking.availabilityId, label: booking.slot, active: false }] } : t));
+    }
   }
 
   function setSuccessGlobal(message) {
@@ -653,32 +688,35 @@ export default function Anytime() {
     window.setTimeout(() => {}, 0);
   }
 
-  function handleRecharge(amount) {
-    setBalance((b) => b + amount);
-    setTransactions((tx) => [
-      { id: Date.now(), note: "Balance recharge", amount, date: "Aug 19, 2026" },
-      ...tx,
-    ]);
-  }
-
-  function handleBookTrial(teacher) {
+  async function handleBookTrial(teacher) {
+    const slot = teacher.slots[0];
+    if (!slot) { setDataError("This teacher has no future availability."); return; }
+    const { error } = await supabase.rpc("create_booking", {
+      p_teacher_id: teacher.id,
+      p_availability_id: slot.id,
+      p_type: "trial",
+      p_duration_minutes: 15,
+    });
+    if (error) { setDataError(error.message); return false; }
     setTrialsUsed((prev) => new Set(prev).add(teacher.id));
-    setBookings((b) => [
-      { id: Date.now(), teacherName: teacher.name, subject: teacher.subjects[0], duration: 15, slot: teacher.slots[0], amount: 0, type: "trial" },
-      ...b,
-    ]);
+    setBookings((b) => [{ id: crypto.randomUUID(), teacherId: teacher.id, teacherName: teacher.name, subject: teacher.subjects[0], duration: 15, slot: slot.label, amount: 0, type: "trial", status: "confirmed", availabilityId: slot.id }, ...b]);
+    setTeachers((all) => all.map((t) => t.id === teacher.id ? { ...t, slots: t.slots.filter((s) => s.id !== slot.id) } : t));
+    return true;
   }
 
-  function handleHire(teacher, duration, slot, cost) {
+  async function handleHire(teacher, duration, slot, cost) {
+    const { data, error } = await supabase.rpc("create_booking", {
+      p_teacher_id: teacher.id,
+      p_availability_id: slot.id,
+      p_type: "paid",
+      p_duration_minutes: duration,
+    });
+    if (error) { setDataError(error.message); return false; }
     setBalance((b) => b - cost);
-    setTransactions((tx) => [
-      { id: Date.now(), note: `Session with ${teacher.name}`, amount: -cost, date: "Aug 19, 2026" },
-      ...tx,
-    ]);
-    setBookings((b) => [
-      { id: Date.now(), teacherName: teacher.name, subject: teacher.subjects[0], duration, slot, amount: cost, type: "paid" },
-      ...b,
-    ]);
+    setTransactions((tx) => [{ id: crypto.randomUUID(), note: `Session with ${teacher.name}`, amount: -cost, date: new Date().toLocaleString() }, ...tx]);
+    setBookings((b) => [{ id: data?.id || crypto.randomUUID(), teacherId: teacher.id, teacherName: teacher.name, subject: teacher.subjects[0], duration, slot: slot.label, amount: cost, type: "paid", status: "confirmed", availabilityId: slot.id }, ...b]);
+    setTeachers((all) => all.map((t) => t.id === teacher.id ? { ...t, slots: t.slots.filter((s) => s.id !== slot.id) } : t));
+    return true;
   }
 
   return (
@@ -727,6 +765,7 @@ export default function Anytime() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-7 sm:py-9">
+        {dataError && <div className="mb-4 text-sm font-mono text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{dataError}</div>}
         {tab === "browse" && (
           <>
             <Slideshow />
@@ -840,7 +879,7 @@ export default function Anytime() {
         )}
 
         {tab === "wallet" && (
-          <WalletView balance={balance} transactions={transactions} onRecharge={handleRecharge} />
+          <WalletView balance={balance} transactions={transactions} />
         )}
 
         {tab === "bookings" && (
@@ -860,4 +899,28 @@ export default function Anytime() {
       </main>
     </div>
   );
+}
+
+export default function Anytime() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
+
+  useEffect(() => {
+    if (!supabase) { setLoading(false); return; }
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (error) setAuthError(error.message);
+      setUser(data.session?.user ?? null);
+      setLoading(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => setUser(session?.user ?? null));
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  if (loading) return <div className="min-h-screen bg-[#f4f6f8] flex items-center justify-center font-mono text-sm text-slate-500">Loading…</div>;
+  if (!supabase) return <div className="min-h-screen bg-[#f4f6f8] flex items-center justify-center px-4 text-center"><div><p className="text-2xl font-black">Supabase configuration missing</p><p className="text-sm text-slate-500 mt-2">Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in the deployment environment.</p></div></div>;
+  if (!user) {
+    return <AuthScreen />;
+  }
+  return <AnytimeApp user={user} />;
 }
