@@ -490,7 +490,7 @@ export default function AnytimeApp({ user }) {
   const [selectedId, setSelectedId] = useState(null);
   const [search, setSearch] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("All");
-  const [balance, setBalance] = useState(50);
+  const [teachers, setTeachers] = useState([]);\n  const [balance, setBalance] = useState(0);\n  const [dataLoading, setDataLoading] = useState(true);\n  const [dataError, setDataError] = useState("");
   const [transactions, setTransactions] = useState([
     { id: 1, note: "Welcome bonus", amount: 50, date: "Aug 19, 2026" },
   ]);
@@ -502,8 +502,116 @@ export default function AnytimeApp({ user }) {
   const [sessionSeconds, setSessionSeconds] = useState(0);
   const [autoRecharge, setAutoRecharge] = useState(false);
   const [notes, setNotes] = useState([]);
-  const [refunds, setRefunds] = useState([]);
+  const [refunds, setRefunds] = useState([]);\n  const TEACHERS = teachers;
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadProductionData() {
+      setDataLoading(true);
+      setDataError("");
+      try {
+        const [teacherResult, walletResult, txResult, bookingResult] = await Promise.all([
+          supabase
+            .from("teacher_profiles")
+            .select("user_id, headline, biography, rate_per_minute, rate_per_hour, experience_years, languages, tags, rating, review_count, sessions_completed, response_time_minutes, is_verified, accepting_students, trial_enabled, presence"),
+          supabase.from("wallets").select("balance").eq("user_id", user.id).maybeSingle(),
+          supabase.from("wallet_transactions").select("id, amount, description, created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
+          supabase.from("bookings").select("id, teacher_id, availability_id, type, status, scheduled_start, scheduled_end, duration_minutes, amount, rate_per_minute, created_at").eq("student_id", user.id).order("created_at", { ascending: false }).limit(50),
+        ]);
+        if (teacherResult.error) throw teacherResult.error;
+        if (walletResult.error) throw walletResult.error;
+        if (txResult.error) throw txResult.error;
+        if (bookingResult.error) throw bookingResult.error;
+
+        const rawTeachers = teacherResult.data || [];
+        const teacherIds = rawTeachers.map((t) => t.user_id);
+        const [profilesResult, subjectsResult, availabilityResult] = await Promise.all([
+          teacherIds.length ? supabase.from("profiles").select("id, full_name, avatar_url").in("id", teacherIds) : Promise.resolve({ data: [], error: null }),
+          teacherIds.length ? supabase.from("teacher_subjects").select("teacher_id, subjects(name)").in("teacher_id", teacherIds) : Promise.resolve({ data: [], error: null }),
+          teacherIds.length ? supabase.from("availability_slots").select("id, teacher_id, starts_at, ends_at, status").in("teacher_id", teacherIds).eq("status", "open").gt("starts_at", new Date().toISOString()).order("starts_at", { ascending: true }).limit(300) : Promise.resolve({ data: [], error: null }),
+        ]);
+        if (profilesResult.error) throw profilesResult.error;
+        if (subjectsResult.error) throw subjectsResult.error;
+        if (availabilityResult.error) throw availabilityResult.error;
+
+        const profiles = Object.fromEntries((profilesResult.data || []).map((p) => [p.id, p]));
+        const subjectsByTeacher = {};
+        for (const row of subjectsResult.data || []) {
+          (subjectsByTeacher[row.teacher_id] ||= []).push(row.subjects?.name).filter(Boolean);
+        }
+        const slotsByTeacher = {};
+        for (const slot of availabilityResult.data || []) {
+          (slotsByTeacher[slot.teacher_id] ||= []).push({
+            id: slot.id,
+            label: new Date(slot.starts_at).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+            active: false,
+          });
+        }
+
+        const mapped = rawTeachers.filter((t) => t.accepting_students).map((t, index) => {
+          const p = profiles[t.user_id];
+          return {
+            id: t.user_id,
+            name: p?.full_name || "Anytime Teacher",
+            subjects: subjectsByTeacher[t.user_id]?.length ? subjectsByTeacher[t.user_id] : ["General"],
+            rate: Number(t.rate_per_hour || Number(t.rate_per_minute) * 60),
+            rating: Number(t.rating || 0),
+            reviews: Number(t.review_count || 0),
+            color: ["amber", "sky", "rose", "emerald", "violet", "orange"][index % 6],
+            bio: t.biography || t.headline || "Available to help you learn.",
+            tags: t.tags || [],
+            verified: Boolean(t.is_verified),
+            response: Number(t.response_time_minutes || 60),
+            repeatRate: 0,
+            sessions: Number(t.sessions_completed || 0),
+            level: "All levels",
+            minuteRate: Number(t.rate_per_minute || 0),
+            languages: t.languages || ["English"],
+            trialEnabled: Boolean(t.trial_enabled),
+            presence: t.presence,
+            slots: slotsByTeacher[t.user_id] || [],
+          };
+        });
+
+        const teacherById = Object.fromEntries(mapped.map((t) => [t.id, t]));
+        const mappedBookings = (bookingResult.data || []).map((b) => {
+          const t = teacherById[b.teacher_id];
+          return {
+            id: b.id,
+            teacherId: b.teacher_id,
+            teacherName: t?.name || "Teacher",
+            subject: t?.subjects?.[0] || "General",
+            duration: b.duration_minutes,
+            slot: b.scheduled_start ? new Date(b.scheduled_start).toLocaleString() : "Instant",
+            amount: Number(b.amount || 0),
+            type: b.type,
+            status: b.status,
+            availabilityId: b.availability_id,
+          };
+        });
+
+        if (!cancelled) {
+          setTeachers(mapped);
+          setBalance(Number(walletResult.data?.balance || 0));
+          setTransactions((txResult.data || []).map((tx) => ({
+            id: tx.id,
+            note: tx.description || "Wallet transaction",
+            amount: Number(tx.amount || 0),
+            date: new Date(tx.created_at).toLocaleString(),
+          })));
+          setBookings(mappedBookings);
+          setTrialsUsed(new Set(mappedBookings.filter((b) => b.type === "trial" && b.status !== "cancelled").map((b) => b.teacherId)));
+        }
+      } catch (error) {
+        if (!cancelled) setDataError(error?.message || "Could not load your Anytime data.");
+      } finally {
+        if (!cancelled) setDataLoading(false);
+      }
+    }
+    loadProductionData();
+    return () => { cancelled = true; };
+  }, [user.id]);
+  
   const subjects = ["All", ...new Set(TEACHERS.flatMap((t) => t.subjects))];
   const activeCount = TEACHERS.filter((t) => isActive(t.slots[0])).length;
   const subjectCounts = Object.entries(
@@ -521,7 +629,7 @@ export default function AnytimeApp({ user }) {
     return matchesSearch && matchesSubject;
   });
 
-  const selected = TEACHERS.find((t) => t.id === selectedId);
+  const selected = TEACHERS.find((t) => t.id === selectedId);\n\n  if (dataLoading) return <div className="min-h-screen bg-[#f4f6f8] flex items-center justify-center font-mono text-sm text-slate-500">Loading your Anytime workspace…</div>;
 
   useEffect(() => {
     if (!session) return;
@@ -580,18 +688,18 @@ export default function AnytimeApp({ user }) {
     setTab("bookings");
   }
 
-  function cancelBooking(id) {
+  async function cancelBooking(id) {
     const booking = bookings.find((b) => b.id === id);
     if (!booking) return;
-    if (booking.amount > 0) {
-      setBalance((b) => b + booking.amount);
-      setTransactions((tx) => [
-        { id: Date.now(), note: `Refund · ${booking.teacherName}`, amount: booking.amount, date: "Aug 19, 2026" },
-        ...tx,
-      ]);
-    }
+    const { error } = await supabase.rpc("cancel_booking", { p_booking_id: id });
+    if (error) { setDataError(error.message); return; }
+    setBalance((b) => b + Number(booking.amount || 0));
+    setTransactions((tx) => booking.amount > 0 ? [{ id: crypto.randomUUID(), note: `Refund · ${booking.teacherName}`, amount: booking.amount, date: new Date().toLocaleString() }, ...tx] : tx);
     setRefunds((r) => [...r, id]);
     setBookings((b) => b.filter((x) => x.id !== id));
+    if (booking.availabilityId) {
+      setTeachers((all) => all.map((t) => t.id === booking.teacherId ? { ...t, slots: [...t.slots, { id: booking.availabilityId, label: booking.slot, active: false }] } : t));
+    }
   }
 
   function setSuccessGlobal(message) {
@@ -607,24 +715,33 @@ export default function AnytimeApp({ user }) {
     ]);
   }
 
-  function handleBookTrial(teacher) {
+  async function handleBookTrial(teacher) {
+    const slot = teacher.slots[0];
+    if (!slot) { setDataError("This teacher has no future availability."); return; }
+    const { error } = await supabase.rpc("create_booking", {
+      p_teacher_id: teacher.id,
+      p_availability_id: slot.id,
+      p_type: "trial",
+      p_duration_minutes: 15,
+    });
+    if (error) { setDataError(error.message); return; }
     setTrialsUsed((prev) => new Set(prev).add(teacher.id));
-    setBookings((b) => [
-      { id: Date.now(), teacherName: teacher.name, subject: teacher.subjects[0], duration: 15, slot: teacher.slots[0], amount: 0, type: "trial" },
-      ...b,
-    ]);
+    setBookings((b) => [{ id: crypto.randomUUID(), teacherId: teacher.id, teacherName: teacher.name, subject: teacher.subjects[0], duration: 15, slot: slot.label, amount: 0, type: "trial", status: "confirmed", availabilityId: slot.id }, ...b]);
+    setTeachers((all) => all.map((t) => t.id === teacher.id ? { ...t, slots: t.slots.filter((s) => s.id !== slot.id) } : t));
   }
 
-  function handleHire(teacher, duration, slot, cost) {
+  async function handleHire(teacher, duration, slot, cost) {
+    const { data, error } = await supabase.rpc("create_booking", {
+      p_teacher_id: teacher.id,
+      p_availability_id: slot.id,
+      p_type: "paid",
+      p_duration_minutes: duration,
+    });
+    if (error) { setDataError(error.message); return; }
     setBalance((b) => b - cost);
-    setTransactions((tx) => [
-      { id: Date.now(), note: `Session with ${teacher.name}`, amount: -cost, date: "Aug 19, 2026" },
-      ...tx,
-    ]);
-    setBookings((b) => [
-      { id: Date.now(), teacherName: teacher.name, subject: teacher.subjects[0], duration, slot, amount: cost, type: "paid" },
-      ...b,
-    ]);
+    setTransactions((tx) => [{ id: crypto.randomUUID(), note: `Session with ${teacher.name}`, amount: -cost, date: new Date().toLocaleString() }, ...tx]);
+    setBookings((b) => [{ id: data?.id || crypto.randomUUID(), teacherId: teacher.id, teacherName: teacher.name, subject: teacher.subjects[0], duration, slot: slot.label, amount: cost, type: "paid", status: "confirmed", availabilityId: slot.id }, ...b]);
+    setTeachers((all) => all.map((t) => t.id === teacher.id ? { ...t, slots: t.slots.filter((s) => s.id !== slot.id) } : t));
   }
 
   return (
@@ -672,7 +789,7 @@ export default function AnytimeApp({ user }) {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-7 sm:py-9">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-7 sm:py-9">\n        {dataError && <div className="mb-4 text-sm font-mono text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{dataError}</div>}
         {tab === "browse" && (
           <>
             <Slideshow />
