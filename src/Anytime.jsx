@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { supabase } from "./lib/supabase";\nimport AuthScreen from "./AuthScreen";
 import {
   Search, Clock, ArrowLeft, Check, GraduationCap,
   X, Wallet, History, CalendarCheck, Plus, Circle,
@@ -7,62 +8,7 @@ import {
   MessageCircle, BookOpen, Star, UserCheck, RotateCcw, SlidersHorizontal,
 } from "lucide-react";
 
-const TEACHERS = [
-  {
-    id: 1, name: "Maria Chen", subjects: ["Algebra", "Calculus"], rate: 18,
-    rating: 4.9, reviews: 132, color: "amber",
-    bio: "Ten years tutoring high schoolers through algebra and calculus. I build from what you already understand instead of starting over.",
-    tags: ["Exam prep", "Patient"],
-    verified: true, response: 2, repeatRate: 78, sessions: 418, level: "High school · University",
-    minuteRate: 0.30, languages: ["English"],
-    slots: ["Today 4:00 PM", "Today 6:30 PM", "Tomorrow 10:00 AM"],
-  },
-  {
-    id: 2, name: "Daniel Okafor", subjects: ["Physics"], rate: 22,
-    rating: 4.8, reviews: 89, color: "sky",
-    bio: "Former lab instructor. I teach physics through the questions you'd actually ask in a lab, not just the formulas.",
-    tags: ["Problem sets", "Visual explainer"],
-    verified: true, response: 3, repeatRate: 74, sessions: 286, level: "High school · University",
-    minuteRate: 0.37, languages: ["English"],
-    slots: ["Today 5:00 PM", "Tomorrow 9:00 AM", "Tomorrow 2:00 PM"],
-  },
-  {
-    id: 3, name: "Sofia Reyes", subjects: ["Spanish"], rate: 15,
-    rating: 5.0, reviews: 210, color: "rose",
-    bio: "Native speaker from Madrid. Conversational focus from lesson one — you'll be speaking, not just memorizing verb tables.",
-    tags: ["Conversation", "Beginner friendly"],
-    verified: true, response: 1, repeatRate: 84, sessions: 612, level: "Beginner · Intermediate",
-    minuteRate: 0.25, languages: ["English", "Spanish"],
-    slots: ["Today 3:00 PM", "Today 7:00 PM", "Tomorrow 11:00 AM"],
-  },
-  {
-    id: 4, name: "James Whitfield", subjects: ["Python", "Data Structures"], rate: 25,
-    rating: 4.7, reviews: 64, color: "emerald",
-    bio: "Backend engineer by day. I teach Python and data structures the way I wish someone had taught me — with real code, not slides.",
-    tags: ["Interview prep", "Live coding"],
-    verified: true, response: 4, repeatRate: 71, sessions: 203, level: "University · Professional",
-    minuteRate: 0.42, languages: ["English"],
-    slots: ["Today 8:00 PM", "Tomorrow 1:00 PM", "Tomorrow 6:00 PM"],
-  },
-  {
-    id: 5, name: "Aiko Tanaka", subjects: ["Piano", "Music Theory"], rate: 20,
-    rating: 4.9, reviews: 97, color: "violet",
-    bio: "Classically trained, but I teach whatever you want to play — classical, pop, or film scores. Theory taught through your own pieces.",
-    tags: ["All levels", "Repertoire choice"],
-    verified: true, response: 3, repeatRate: 81, sessions: 344, level: "All levels",
-    minuteRate: 0.33, languages: ["English", "Japanese"],
-    slots: ["Today 4:30 PM", "Tomorrow 10:30 AM", "Tomorrow 3:00 PM"],
-  },
-  {
-    id: 6, name: "Ben Torres", subjects: ["English Writing"], rate: 16,
-    rating: 4.8, reviews: 145, color: "orange",
-    bio: "Former newspaper editor. I help with essays, applications, and just writing sentences that sound like you.",
-    tags: ["College essays", "Editing"],
-    verified: true, response: 2, repeatRate: 76, sessions: 391, level: "High school · University",
-    minuteRate: 0.27, languages: ["English"],
-    slots: ["Today 6:00 PM", "Tomorrow 9:30 AM", "Tomorrow 5:00 PM"],
-  },
-];
+const TEACHERS = [];
 
 const AVATAR_BG = {
   amber: "bg-amber-500", sky: "bg-sky-500", rose: "bg-rose-500",
@@ -86,7 +32,7 @@ function money(n) {
   return `$${n.toFixed(2)}`;
 }
 function isActive(slot) {
-  return slot.startsWith("Today");
+  return Boolean(slot?.active);
 }
 
 function Barcode() {
@@ -104,7 +50,7 @@ function StatusTag({ slot }) {
   return (
     <span className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider ${active ? "text-emerald-400" : "text-slate-400"}`}>
       <Circle size={7} className={active ? "fill-emerald-400 text-emerald-400" : "fill-slate-500 text-slate-500"} />
-      {active ? "Active" : `Next: ${slot}`}
+      {active ? "Active" : `Next: ${slot?.label || "Unavailable"}`}
     </span>
   );
 }
@@ -268,7 +214,7 @@ function TeacherDetail({ teacher, trialUsed, onBack, onBookTrial, onHire, balanc
     setError("");
   }
 
-  function handleHireClick() {
+  async function handleHireClick() {
     if (!slot) {
       setError("Pick a time slot first.");
       return;
@@ -277,7 +223,7 @@ function TeacherDetail({ teacher, trialUsed, onBack, onBookTrial, onHire, balanc
       setError(`Not enough balance. Add ${money(cost - balance)} more to book this session.`);
       return;
     }
-    onHire(teacher, duration, slot, cost);
+    await onHire(teacher, duration, slot, cost);
     setSuccess(`Session booked with ${teacher.name} for ${slot}.`);
     setError("");
     setSlot(null);
@@ -539,7 +485,7 @@ const UI_STYLES = `
 }
 `;
 
-export default function Anytime() {
+export default function AnytimeApp({ user }) {
   const [tab, setTab] = useState("browse");
   const [selectedId, setSelectedId] = useState(null);
   const [search, setSearch] = useState("");
@@ -861,3 +807,4 @@ export default function Anytime() {
     </div>
   );
 }
+\nexport default function Anytime() {\n  const [user, setUser] = useState(null);\n  const [loading, setLoading] = useState(true);\n  const [authError, setAuthError] = useState("");\n\n  useEffect(() => {\n    if (!supabase) { setLoading(false); return; }\n    supabase.auth.getSession().then(({ data, error }) => {\n      if (error) setAuthError(error.message);\n      setUser(data.session?.user ?? null);\n      setLoading(false);\n    });\n    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => setUser(session?.user ?? null));\n    return () => listener.subscription.unsubscribe();\n  }, []);\n\n  if (loading) return <div className="min-h-screen bg-[#f4f6f8] flex items-center justify-center font-mono text-sm text-slate-500">Loading…</div>;\n  if (!supabase) return <div className="min-h-screen bg-[#f4f6f8] flex items-center justify-center px-4 text-center"><div><p className="text-2xl font-black">Supabase configuration missing</p><p className="text-sm text-slate-500 mt-2">Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in the deployment environment.</p></div></div>;\n  if (!user) {\n    return <AuthScreen />;\n  }\n  return <AnytimeApp user={user} />;\n}\n
