@@ -9,7 +9,7 @@ if (!supabaseUrl || !supabasePublishableKey) {
   );
 }
 
-export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
+export const supabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);\n\nexport const supabase = supabaseConfigured ? createClient(supabaseUrl, supabasePublishableKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
